@@ -1,0 +1,47 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_CXX_STANDARD": "17",
+        "LV_CONF_SKIP_POSIX_REQD": "ON",
+        "LV_BUILD_CONF_PATH": "${sourceDir}/lv_conf.h",
+        "CONFIG_LV_BUILD_EXAMPLES": "OFF",
+        "CONFIG_LV_BUILD_DEMOS": "OFF",
+        "CONFIG_LV_USE_THORVG_INTERNAL": "OFF"
+      }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug Build",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "LV_USE_ASSERT_HANDLER": "ON"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release Build",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_FLAGS_RELEASE": "-O3 -march=armv8.2-a+crc+crypto"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "debug"
+    },
+    {
+      "name": "release",
+      "configurePreset": "release"
+    }
+  ]
+}

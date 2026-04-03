@@ -1,0 +1,37 @@
+---
+# Based on Google Style with modern C++17 adjustments
+Language: Cpp
+BasedOnStyle: Google
+
+# Indentation and Spacing
+IndentWidth: 4
+ColumnLimit: 100
+UseTab: Never
+Standard: c++17
+
+# Braces and Blocks
+BreakBeforeBraces: Attach
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortBlocksOnASingleLine: false
+AllowShortIfStatementsOnASingleLine: false
+
+# Pointer and Reference Alignment
+# Aligns the asterisk to the type: "int* ptr" instead of "int *ptr"
+PointerAlignment: Left
+
+# Alignment of Consecutive Declarations
+# Makes the code look like a clean table
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: true
+
+# Include Header Management
+SortIncludes: true
+IncludeBlocks: Regroup
+
+# Space settings
+SpaceAfterCStyleCast: true
+SpaceBeforeRangeBasedForLoopColon: true
+
+# Documentation Comments
+# Preserves the alignment of trailing comments
+AlignTrailingComments: true
