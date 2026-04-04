@@ -12,7 +12,7 @@
 static uint32_t lv_tick_cb(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint32_t) (ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+    return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }
 
 int main(void) {
@@ -30,12 +30,22 @@ int main(void) {
         return 1;
     }
 
+    // Locate the gpio-beeper input device exposed by the kernel driver.
+    // The driver names the device "gpio-beeper", so we scan event nodes.
     std::unique_ptr<Buzzer> buzzer;
-    try {
-        buzzer = std::make_unique<Buzzer>("/dev/gpiochip0", 17);
-        fprintf(stderr, "[clock] Buzzer ready on GPIO 17\n");
-    } catch (const std::exception& e) {
-        fprintf(stderr, "[clock] WARNING: buzzer unavailable: %s\n", e.what());
+    {
+        std::string dev = Buzzer::find();
+        if (!dev.empty()) {
+            try {
+                buzzer = std::make_unique<Buzzer>(dev);
+                fprintf(stderr, "[clock] Buzzer ready on %s\n", dev.c_str());
+            } catch (const std::exception& e) {
+                fprintf(stderr, "[clock] WARNING: buzzer unavailable: %s\n", e.what());
+            }
+        } else {
+            fprintf(stderr, "[clock] WARNING: gpio-beeper device not found"
+                            " (is the overlay loaded?)\n");
+        }
     }
 
     ClockApp app(buzzer.get());
