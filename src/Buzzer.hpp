@@ -17,7 +17,7 @@
  *
  * @note
  *   To find the correct event node at runtime:
- *     grep -rl "gpio-beeper" /sys/class/input/*/device/name
+ *     grep -rl "gpio-beeper" /sys/class/input/<N>/device/name
  *   or equivalently, use Buzzer::find() below.
  */
 
