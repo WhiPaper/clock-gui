@@ -30,22 +30,13 @@ int main(void) {
         return 1;
     }
 
-    // Locate the gpio-beeper input device exposed by the kernel driver.
-    // The driver names the device "gpio-beeper", so we scan event nodes.
+    // Initialise the KY-012 buzzer via direct GPIO (sysfs, GPIO14 / BCM 14).
     std::unique_ptr<Buzzer> buzzer;
-    {
-        std::string dev = Buzzer::find();
-        if (!dev.empty()) {
-            try {
-                buzzer = std::make_unique<Buzzer>(dev);
-                fprintf(stderr, "[clock] Buzzer ready on %s\n", dev.c_str());
-            } catch (const std::exception& e) {
-                fprintf(stderr, "[clock] WARNING: buzzer unavailable: %s\n", e.what());
-            }
-        } else {
-            fprintf(stderr, "[clock] WARNING: gpio-beeper device not found"
-                            " (is the overlay loaded?)\n");
-        }
+    try {
+        buzzer = std::make_unique<Buzzer>(14);
+        fprintf(stderr, "[clock] Buzzer ready on GPIO14\n");
+    } catch (const std::exception& e) {
+        fprintf(stderr, "[clock] WARNING: buzzer unavailable: %s\n", e.what());
     }
 
     ClockApp app(buzzer.get());

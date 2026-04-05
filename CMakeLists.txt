@@ -34,8 +34,13 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 )
 
 # --- 6. Link Libraries ---
+
+# libgpiod: userspace GPIO control (KY-012 buzzer via GPIO14)
+find_library(GPIOD_LIBRARY NAMES gpiod REQUIRED)
+
 target_link_libraries(${PROJECT_NAME} 
     PRIVATE 
     lvgl
     pthread
+    ${GPIOD_LIBRARY}
 )

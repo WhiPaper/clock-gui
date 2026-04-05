@@ -1,31 +1,27 @@
 #pragma once
 /**
  * @file Buzzer.hpp
- * @brief KY-012 active buzzer driver via the kernel gpio-beeper input device.
+ * @brief KY-012 active buzzer driver via libgpiod (userspace GPIO).
  *
- * The gpio-beeper kernel driver exposes the buzzer as a standard Linux input
- * device (EV_SND / SND_BELL).  This class opens that device node and sends
- * input_event packets to turn the buzzer on/off, with automatic off-scheduling
- * via a one-shot LVGL timer.
+ * Uses the libgpiod C API to drive GPIO14 (BCM, physical pin 8) directly
+ * from userspace.  No kernel driver or device tree overlay is required.
  *
- * No libgpiod dependency.  The device is opened non-blocking so that the
- * write() calls never stall the LVGL main loop.
+ * libgpiod is the modern, kernel-recommended replacement for the deprecated
+ * sysfs GPIO interface (/sys/class/gpio).
+ *
+ * Build dependency:
+ *   - Link against: -lgpiod
+ *   - Yocto recipe:  DEPENDS += "libgpiod"
  *
  * @example
- *   Buzzer bz("/dev/input/event0");   // or use Buzzer::find() to auto-detect
- *   bz.beep(200);                     // 200 ms beep, non-blocking
- *
- * @note
- *   To find the correct event node at runtime:
- *     grep -rl "gpio-beeper" /sys/class/input/<N>/device/name
- *   or equivalently, use Buzzer::find() below.
+ *   Buzzer bz;          // default: /dev/gpiochip0, GPIO14
+ *   bz.beep(200);       // 200 ms non-blocking beep
  */
 
-#include <fcntl.h>
-#include <linux/input.h>
+#include <gpiod.h>
 #include <unistd.h>
 
-#include <cstdint>
+#include <cerrno>
 #include <cstring>
 #include <stdexcept>
 #include <string>
@@ -35,27 +31,49 @@
 class Buzzer {
    public:
     /**
-     * @brief Open a gpio-beeper input device by its event node path.
-     * @param dev_path  Path such as "/dev/input/event0".
-     * @throws std::runtime_error if the device cannot be opened.
+     * @brief Open a gpiochip and request the given line as output.
+     * @param chip_path  gpiochip device node (default: "/dev/gpiochip0").
+     * @param gpio_pin   BCM GPIO line offset (default: 14).
+     * @throws std::runtime_error if the chip or line cannot be opened.
      */
-    explicit Buzzer(const std::string& dev_path) {
-        fd_ = ::open(dev_path.c_str(), O_WRONLY | O_NONBLOCK | O_CLOEXEC);
-        if (fd_ < 0)
-            throw std::runtime_error("Buzzer: cannot open " + dev_path + ": " +
-                                     std::strerror(errno));
+    explicit Buzzer(const char* chip_path = "/dev/gpiochip0", unsigned int gpio_pin = 14) {
+        chip_ = gpiod_chip_open(chip_path);
+        if (!chip_)
+            throw std::runtime_error(std::string("Buzzer: cannot open ") +
+                                     chip_path + ": " + std::strerror(errno));
+
+        line_ = gpiod_chip_get_line(chip_, gpio_pin);
+        if (!line_) {
+            gpiod_chip_close(chip_);
+            chip_ = nullptr;
+            throw std::runtime_error("Buzzer: cannot get GPIO line " +
+                                     std::to_string(gpio_pin));
+        }
+
+        // Request the line as output, initially LOW (buzzer off).
+        if (gpiod_line_request_output(line_, "clockos-buzzer", 0) < 0) {
+            gpiod_chip_close(chip_);
+            chip_ = nullptr;
+            throw std::runtime_error("Buzzer: cannot request GPIO" +
+                                     std::to_string(gpio_pin) +
+                                     " as output: " + std::strerror(errno));
+        }
     }
 
     ~Buzzer() {
-        // Cancel any pending asynchronous turn-off timer.
         if (off_timer_) {
             lv_timer_delete(off_timer_);
             off_timer_ = nullptr;
         }
-        // Ensure buzzer is silenced before closing.
-        send_bell_(false);
-        if (fd_ >= 0)
-            ::close(fd_);
+        set_line_(false);
+        if (line_) {
+            gpiod_line_release(line_);
+            line_ = nullptr;
+        }
+        if (chip_) {
+            gpiod_chip_close(chip_);
+            chip_ = nullptr;
+        }
     }
 
     Buzzer(const Buzzer&)            = delete;
@@ -69,80 +87,37 @@ class Buzzer {
      * the beep duration.
      */
     void beep(int duration_ms) {
-        if (fd_ < 0 || duration_ms <= 0)
+        if (!line_ || duration_ms <= 0)
             return;
 
-        // Reset any pending off-timer.
         if (off_timer_) {
             lv_timer_delete(off_timer_);
             off_timer_ = nullptr;
         }
 
-        send_bell_(true);
+        set_line_(true);
 
-        off_timer_ = lv_timer_create(beep_off_cb_, static_cast<uint32_t>(duration_ms), this);
+        off_timer_ =
+            lv_timer_create(beep_off_cb_, static_cast<uint32_t>(duration_ms), this);
         lv_timer_set_repeat_count(off_timer_, 1);
     }
 
-    /** @return true if the device was opened successfully. */
-    bool ok() const { return fd_ >= 0; }
-
-    /**
-     * @brief Find the first input device whose name is "gpio-beeper".
-     *
-     * Scans /dev/input/event0 … event31.  Returns the path of the first
-     * matching node, or an empty string if none is found.
-     *
-     * Usage:
-     *   std::string path = Buzzer::find();
-     *   if (!path.empty()) buzzer = std::make_unique<Buzzer>(path);
-     */
-    static std::string find() {
-        char name[256];
-        for (int i = 0; i < 32; ++i) {
-            std::string path = "/dev/input/event" + std::to_string(i);
-            int fd = ::open(path.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-            if (fd < 0)
-                continue;
-            name[0] = '\0';
-            ::ioctl(fd, EVIOCGNAME(sizeof(name) - 1), name);
-            ::close(fd);
-            if (std::string(name) == "gpio-beeper")
-                return path;
-        }
-        return {};
-    }
+    /** @return true if the GPIO line was claimed successfully. */
+    bool ok() const { return line_ != nullptr; }
 
    private:
-    /**
-     * @brief Write an EV_SND / SND_BELL input event to the device.
-     * @param on  true = beep on, false = beep off.
-     */
-    void send_bell_(bool on) {
-        if (fd_ < 0)
-            return;
-
-        // Two events: the sound event itself, then a synchronisation report.
-        struct input_event events[2]{};
-
-        events[0].type  = EV_SND;
-        events[0].code  = SND_BELL;
-        events[0].value = on ? 1 : 0;
-
-        events[1].type  = EV_SYN;
-        events[1].code  = SYN_REPORT;
-        events[1].value = 0;
-
-        // Non-blocking write; ignore EAGAIN (buffer full) safely.
-        ::write(fd_, events, sizeof(events));
+    void set_line_(bool on) {
+        if (line_)
+            gpiod_line_set_value(line_, on ? 1 : 0);
     }
 
     static void beep_off_cb_(lv_timer_t* t) {
         Buzzer* self     = static_cast<Buzzer*>(lv_timer_get_user_data(t));
         self->off_timer_ = nullptr;
-        self->send_bell_(false);
+        self->set_line_(false);
     }
 
-    int         fd_        = -1;
+    gpiod_chip* chip_      = nullptr;
+    gpiod_line* line_      = nullptr;
     lv_timer_t* off_timer_ = nullptr;
 };
