@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.12)
 project(clockOS_gui LANGUAGES C CXX ASM)
 
 cmake_policy(SET CMP0077 NEW)
+cmake_policy(SET CMP0079 NEW)
 
 # --- LVGL Configuration ---
 set(LV_BUILD_CONF_PATH "${PROJECT_SOURCE_DIR}/lv_conf.h" CACHE STRING "" FORCE)
