@@ -19,21 +19,17 @@ int main(void) {
     lv_init();
     lv_tick_set_cb(lv_tick_cb);
 
-    lv_display_t* disp = lv_linux_fbdev_create();
+    // adafruit-st7735r uses the DRM/KMS "tiny" driver → /dev/dri/card0.
+    lv_display_t* disp = lv_linux_drm_create();
     if (!disp) {
-        fprintf(stderr, "[clock] ERROR: failed to create fbdev display\n");
-        return 1;
-    }
-    lv_result_t res = lv_linux_fbdev_set_file(disp, "/dev/fb0");
-    if (res != LV_RESULT_OK) {
-        fprintf(stderr, "[clock] ERROR: failed to open /dev/fb0\n");
+        fprintf(stderr, "[clock] ERROR: failed to create DRM display\n");
         return 1;
     }
 
-    // Initialise the KY-012 buzzer via direct GPIO (sysfs, GPIO14 / BCM 14).
+    // Initialise the KY-012 buzzer via libgpiod (GPIO14 / BCM 14 on gpiochip0).
     std::unique_ptr<Buzzer> buzzer;
     try {
-        buzzer = std::make_unique<Buzzer>(14);
+        buzzer = std::make_unique<Buzzer>();  // defaults: /dev/gpiochip0, GPIO14
         fprintf(stderr, "[clock] Buzzer ready on GPIO14\n");
     } catch (const std::exception& e) {
         fprintf(stderr, "[clock] WARNING: buzzer unavailable: %s\n", e.what());

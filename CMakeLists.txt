@@ -25,22 +25,32 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "src/*.cpp")
-add_executable(${PROJECT_NAME} ${SOURCES})
 
-# --- 5. Include Directories ---
-target_include_directories(${PROJECT_NAME} PRIVATE 
-    ${PROJECT_SOURCE_DIR}
-    ${PROJECT_SOURCE_DIR}/src
-)
-
-# --- 6. Link Libraries ---
+# --- 5. Find Libraries (before add_executable) ---
 
 # libgpiod: userspace GPIO control (KY-012 buzzer via GPIO14)
 find_library(GPIOD_LIBRARY NAMES gpiod REQUIRED)
 
-target_link_libraries(${PROJECT_NAME} 
-    PRIVATE 
+# libdrm: required by LVGL's DRM/KMS backend (LV_USE_LINUX_DRM)
+# adafruit-st7735r overlay uses the DRM "tiny" driver → /dev/dri/card0
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(DRM REQUIRED libdrm)
+
+# --- 6. Define Application Target ---
+add_executable(${PROJECT_NAME} ${SOURCES})
+
+# --- 5. Include Directories ---
+target_include_directories(${PROJECT_NAME} PRIVATE
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/src
+    ${DRM_INCLUDE_DIRS}
+)
+
+# --- 7. Link Libraries ---
+target_link_libraries(${PROJECT_NAME}
+    PRIVATE
     lvgl
     pthread
     ${GPIOD_LIBRARY}
+    ${DRM_LIBRARIES}
 )

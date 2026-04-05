@@ -50,9 +50,9 @@ class ClockApp {
                  t.tm_mday, day_names[t.tm_wday]);
         lv_label_set_text(date_label_, date_buf);
 
-        // Trigger audible time signals for testing.
-        if (buzzer_) {
-            buzzer_->beep(50);
+        // Beep once at the start of each minute.
+        if (buzzer_ && t.tm_sec == 0) {
+            buzzer_->beep(100);
         }
     }
 
