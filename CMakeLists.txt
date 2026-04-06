@@ -44,3 +44,5 @@ target_link_libraries(${PROJECT_NAME}
     PkgConfig::GPIOD
     Threads::Threads
 )
+
+install(TARGETS ${PROJECT_NAME} DESTINATION bin)
