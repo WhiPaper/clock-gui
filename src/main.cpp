@@ -26,6 +26,12 @@ int main(void) {
         return 1;
     }
 
+    // Set the file descriptor for the DRM device.
+    if (lv_linux_drm_set_file(disp, "/dev/dri/card0", -1) != LV_RESULT_OK) {
+        fprintf(stderr, "[clock] ERROR: failed to open DRM device\n");
+        return 1;
+    }
+
     // Initialise the KY-012 buzzer via libgpiod (GPIO14 / BCM 14 on gpiochip0).
     std::unique_ptr<Buzzer> buzzer;
     try {
