@@ -27,7 +27,7 @@ int main(void) {
     }
 
     // Set the file descriptor for the DRM device.
-    if (lv_linux_drm_set_file(disp, "/dev/dri/card0", -1) != LV_RESULT_OK) {
+    if (lv_linux_drm_set_file(disp, "/dev/dri/card2", -1) != LV_RESULT_OK) {
         fprintf(stderr, "[clock] ERROR: failed to open DRM device\n");
         return 1;
     }
