@@ -37,7 +37,14 @@ class ClockApp {
         lv_obj_set_style_text_color(date_label_, lv_color_hex(0x8888AA), 0);
         lv_obj_set_style_text_font(date_label_, &lv_font_montserrat_14, 0);
         lv_label_set_text(date_label_, "0000.00.00 (---)");
+
+        alert_label_ = lv_label_create(cont);
+        lv_obj_set_style_text_color(alert_label_, lv_color_hex(0xFF3B30), 0);
+        lv_obj_set_style_text_font(alert_label_, &lv_font_montserrat_20, 0);
+        lv_label_set_text(alert_label_, "");
     }
+
+    void set_drowsy(bool is_drowsy) { drowsy_detected_ = is_drowsy; }
 
     void update(const struct tm& t) {
         char time_buf[16];
@@ -50,6 +57,18 @@ class ClockApp {
                  t.tm_mday, day_names[t.tm_wday]);
         lv_label_set_text(date_label_, date_buf);
 
+        if (drowsy_detected_) {
+            lv_label_set_text(alert_label_, "일어나세요!");
+            if (buzzer_ && t.tm_sec != last_alarm_second_) {
+                last_alarm_second_ = t.tm_sec;
+                buzzer_->beep(350);
+            }
+            return;
+        }
+
+        lv_label_set_text(alert_label_, "");
+        last_alarm_second_ = -1;
+
         // Beep once at the start of each minute.
         if (buzzer_ && t.tm_sec == 0) {
             buzzer_->beep(100);
@@ -60,4 +79,7 @@ class ClockApp {
     Buzzer*   buzzer_     = nullptr;
     lv_obj_t* time_label_ = nullptr;
     lv_obj_t* date_label_ = nullptr;
+    lv_obj_t* alert_label_ = nullptr;
+    bool      drowsy_detected_ = false;
+    int       last_alarm_second_ = -1;
 };

@@ -1,42 +1,69 @@
 # Clock GUI
 
-A Clock GUI application built with C++17 and LVGL.
+LVGL digital clock application with drowsiness alerts driven by a Python OpenCV detector.
 
-## Features
-- **LVGL UI**: Modern graphical interface powered by LVGL 9.5.
-- **Asynchronous Buzzer**: Non-blocking buzzer implementation via LVGL timers.
-- **CMake Build System**: Easily builds across modern Linux setups.
+## What this project does
 
-## Prerequisites
-- C++17 compatible compiler (e.g., GCC or Clang)
-- CMake (>= 3.10)
-- Make or Ninja
+- Renders clock UI with LVGL.
+- Reads drowsiness status from EARSYS through a POSIX shared memory bridge.
+- Shows "일어나세요!" in LVGL and triggers buzzer beeps while drowsy.
 
-## Getting Started
+## Integration Architecture
 
-### 1. Clone the Repository
-Make sure to include the `--recursive` flag to clone the LVGL submodule:
-```bash
-git clone --recursive https://github.com/your-username/clock-gui.git
-cd clock-gui
+- Python detector (EARSYS) writes drowsy status to POSIX shared memory.
+- LVGL app reads shared memory in the main loop.
+- When status is drowsy, `ClockApp` updates alert label and drives `Buzzer`.
+
+Default shared memory name:
+
+```text
+/earsys_drowsy_shm
 ```
-*(If you have already cloned without submodules, run `git submodule update --init --recursive`)*
 
-### 2. Build the Project
-Configure and build using CMake:
+Override with environment variable:
+
 ```bash
-# Configure the build system
-cmake -B build -S .
+export EARSYS_SHM_NAME=/earsys_drowsy_shm
+```
 
-# Compile the source code
+## Submodule Layout
+
+EARSYS is intended to be mounted as git submodule:
+
+```text
+external/EARSYS
+```
+
+Add it with:
+
+```bash
+git submodule add https://github.com/WhiPaper/EARSYS external/EARSYS
+git submodule update --init --recursive
+```
+
+## Build
+
+```bash
+cmake -B build -S .
 cmake --build build -j$(nproc)
 ```
 
-### 3. Run the Application
+## Run
+
+1. Start detector in one terminal:
+
 ```bash
-./build/clockOS_gui
+cd external/EARSYS
+EARSYS_SHM_NAME=/earsys_drowsy_shm python3 main.py
 ```
 
-## Development
-- **Code Style**: The project follows Google C++ style with some custom `.clang-format` adjustments. Run clang-format before committing.
-- **Dependencies**: LVGL configuration can be found and modified in `lv_conf.h`.
+2. Start LVGL clock in another terminal:
+
+```bash
+EARSYS_SHM_NAME=/earsys_drowsy_shm ./build/clockOS_gui
+```
+
+## Notes
+
+- Shared memory status code `1` means drowsy, so LVGL shows "일어나세요!" and beeps.
+- If the shared memory object is not present yet, LVGL falls back to non-drowsy state.

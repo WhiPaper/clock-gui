@@ -2,10 +2,12 @@
 
 #include <cstdio>
 #include <ctime>
+#include <cstdlib>
 #include <memory>
 
 #include "Buzzer.hpp"
 #include "ClockApp.hpp"
+#include "DrowsinessBridge.hpp"
 #include "lvgl/lvgl.h"
 
 // Provide a custom tick source for LVGL based on the monotonic clock.
@@ -44,8 +46,17 @@ int main(void) {
     ClockApp app(buzzer.get());
     app.init();
 
+    const char* shm_name = std::getenv("EARSYS_SHM_NAME");
+    if (!shm_name || shm_name[0] == '\0') {
+        shm_name = "/earsys_drowsy_shm";
+    }
+    DrowsinessBridge drowsy_bridge(shm_name);
+
     int last_second = -1;
     while (true) {
+        bool is_drowsy = drowsy_bridge.poll();
+        app.set_drowsy(is_drowsy);
+
         time_t     now    = time(nullptr);
         struct tm* tm_now = localtime(&now);
 
