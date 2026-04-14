@@ -1,16 +1,16 @@
 # Clock GUI
 
-LVGL digital clock application with drowsiness alerts driven by a Python OpenCV detector.
+LVGL digital clock application with drowsiness alerts driven by an external detector over POSIX shared memory.
 
 ## What this project does
 
 - Renders clock UI with LVGL.
-- Reads drowsiness status from EARSYS through a POSIX shared memory bridge.
+- Reads drowsiness status through a POSIX shared memory bridge.
 - Shows "일어나세요!" in LVGL and triggers buzzer beeps while drowsy.
 
 ## Integration Architecture
 
-- Python detector (EARSYS) writes drowsy status to POSIX shared memory.
+- External detector process writes drowsy status to POSIX shared memory.
 - LVGL app reads shared memory in the main loop.
 - When status is drowsy, `ClockApp` updates alert label and drives `Buzzer`.
 
@@ -26,21 +26,6 @@ Override with environment variable:
 export EARSYS_SHM_NAME=/earsys_drowsy_shm
 ```
 
-## Submodule Layout
-
-EARSYS is intended to be mounted as git submodule:
-
-```text
-external/EARSYS
-```
-
-Add it with:
-
-```bash
-git submodule add https://github.com/WhiPaper/EARSYS external/EARSYS
-git submodule update --init --recursive
-```
-
 ## Build
 
 ```bash
@@ -50,11 +35,11 @@ cmake --build build -j$(nproc)
 
 ## Run
 
-1. Start detector in one terminal:
+1. Start your detector in one terminal (it must publish the shared memory protocol used by this app).
 
 ```bash
-cd external/EARSYS
-EARSYS_SHM_NAME=/earsys_drowsy_shm python3 main.py
+# Example environment variable only; detector command depends on your setup.
+EARSYS_SHM_NAME=/earsys_drowsy_shm <your_detector_command>
 ```
 
 2. Start LVGL clock in another terminal:
