@@ -10,7 +10,7 @@
  *   [N*M bytes] module data  1 byte per module: 1=black, 0=white
  *
  * Rendering: the overlay creates an lv_canvas sized to fit the display
- * with 4× pixel scaling of each QR module.
+ * and picks a per-module pixel scale dynamically.
  */
 
 #include <cstdio>
@@ -22,7 +22,7 @@
 class QrOverlay {
    public:
     static constexpr const char* kQrBinPath = "/run/sleepcare/qr.bin";
-    static constexpr int         kScale     = 4;   /* pixels per QR module */
+    static constexpr int         kMinPaddingPx = 8;
 
     explicit QrOverlay() = default;
     ~QrOverlay()         = default;
@@ -59,13 +59,29 @@ class QrOverlay {
         qr_w_ = w;
         qr_h_ = h;
 
+        /* --- compute scale to fit current display ------------------------- */
+        lv_obj_t* screen = lv_screen_active();
+        int       disp_w = lv_obj_get_content_width(screen);
+        int       disp_h = lv_obj_get_content_height(screen);
+        if (disp_w <= 0 || disp_h <= 0) {
+            std::fprintf(stderr, "[qr] invalid display size: %dx%d\n", disp_w,
+                         disp_h);
+            return;
+        }
+
+        int avail_w = disp_w - (kMinPaddingPx * 2);
+        int avail_h = disp_h - (kMinPaddingPx * 2);
+        int scale_w = avail_w / static_cast<int>(w);
+        int scale_h = avail_h / static_cast<int>(h);
+        int scale   = (scale_w < scale_h) ? scale_w : scale_h;
+        if (scale < 1) scale = 1;
+
         /* --- allocate canvas buffer (RGB565) ----------------------------- */
-        int sw = w * kScale;
-        int sh = h * kScale;
+        int sw = w * scale;
+        int sh = h * scale;
         canvas_buf_.assign(static_cast<size_t>(sw) * sh * 2, 0xFF); /* white */
 
         /* --- create / resize canvas ------------------------------------- */
-        lv_obj_t* screen = lv_screen_active();
         if (!canvas_) {
             canvas_ = lv_canvas_create(screen);
             lv_obj_set_style_bg_color(canvas_, lv_color_white(), 0);
@@ -91,10 +107,10 @@ class QrOverlay {
                 if (modules_[static_cast<size_t>(row) * w + col] == 0) continue;
 
                 lv_area_t area;
-                area.x1 = col * kScale;
-                area.y1 = row * kScale;
-                area.x2 = area.x1 + kScale - 1;
-                area.y2 = area.y1 + kScale - 1;
+                area.x1 = col * scale;
+                area.y1 = row * scale;
+                area.x2 = area.x1 + scale - 1;
+                area.y2 = area.y1 + scale - 1;
                 lv_draw_rect(&layer, &dsc, &area);
             }
         }

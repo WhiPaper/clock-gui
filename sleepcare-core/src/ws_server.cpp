@@ -56,12 +56,31 @@ struct ScWsServer {
     int                 risk_fd;
     ScAlert*            alert;
     uint32_t            risk_seq;
+    uint8_t             qr_ready;
     /* pointer to active connection (NULL if none) */
     struct lws*         active_wsi;
     ConnCtx*            active_conn;
 };
 
 static ScWsServer* g_srv = NULL;  /* single global for LWS callback */
+
+static void send_ui_state_frame(uint8_t state, uint8_t alert_level, uint8_t qr_ready,
+                                float eye_score, float fused_score, uint16_t hr_bpm) {
+    if (!g_srv || g_srv->risk_fd < 0) return;
+
+    RiskFrame rf = {0};
+    rf.magic[0]='S'; rf.magic[1]='R'; rf.magic[2]='S'; rf.magic[3]='K';
+    rf.version     = 1;
+    rf.state       = state;
+    rf.alert_level = alert_level;
+    rf.qr_ready    = qr_ready;
+    rf.eye_score   = eye_score;
+    rf.fused_score = fused_score;
+    rf.hr_bpm      = hr_bpm;
+    rf.seq         = g_srv->risk_seq++;
+    rf.ts_ms       = (uint64_t)sc_now_ms();
+    sc_risk_send(g_srv->risk_fd, &rf);
+}
 
 /* ── Helpers ────────────────────────────────────────────────────────── */
 static void send_msg(struct lws* wsi, ConnCtx* conn, const char* msg) {
@@ -105,6 +124,11 @@ static void handle_session_open(struct lws* wsi, ConnCtx* conn, ScEnvelope* env,
     g_srv->active_wsi  = wsi;
     g_srv->active_conn = conn;
 
+    /* Pairing/session established: hide QR overlay immediately. */
+    g_srv->qr_ready = 0;
+    send_ui_state_frame((uint8_t)SC_STATE_BASELINE, 0, g_srv->qr_ready,
+                        0.0f, 0.0f, 0);
+
     send_envelope(wsi, conn, T_SESSION_ACK, "{}", false);
     /* Start 1-second risk timer */
     lws_set_timer_usecs(wsi, SC_RISK_INTERVAL_MS * 1000);
@@ -140,6 +164,12 @@ static void handle_session_close(struct lws* wsi, ConnCtx* conn, const char* bod
 
     if (root) cJSON_Delete(root);
     send_envelope(wsi, conn, T_SESSION_SUMM, body, false);
+
+    /* Session intentionally closed: show QR again for next pairing. */
+    g_srv->qr_ready = 1;
+    send_ui_state_frame((uint8_t)SC_STATE_IDLE, 0, g_srv->qr_ready,
+                        0.0f, 0.0f, 0);
+
     g_srv->active_wsi  = NULL;
     g_srv->active_conn = NULL;
     printf("[core] Session %s closed (%s)\n", conn->session.sid, reason);
@@ -203,6 +233,7 @@ static void do_risk_tick(struct lws* wsi, ConnCtx* conn) {
     rf.magic[0]='S'; rf.magic[1]='R'; rf.magic[2]='S'; rf.magic[3]='K';
     rf.version     = 1;
     rf.state       = (uint8_t)state;
+    rf.qr_ready    = g_srv->qr_ready;
     rf.eye_score   = eye_score;
     rf.fused_score = fused;
     rf.hr_bpm      = (uint16_t)bpm;
@@ -301,6 +332,11 @@ static int sc_ws_callback(struct lws* wsi, enum lws_callback_reasons reason,
             g_srv->active_wsi  = NULL;
             g_srv->active_conn = NULL;
         }
+        if (g_srv->qr_ready == 0) {
+            g_srv->qr_ready = 1;
+            send_ui_state_frame((uint8_t)SC_STATE_IDLE, 0, g_srv->qr_ready,
+                                0.0f, 0.0f, 0);
+        }
         break;
 
     default:
@@ -339,6 +375,7 @@ ScWsServer* sc_ws_create(int port, const char* cert_path, const char* key_path,
     srv->eye_fd  = eye_fd;
     srv->risk_fd = risk_fd;
     srv->alert   = sc_alert_open();
+    srv->qr_ready = 1;
     g_srv        = srv;
 
     struct lws_context_creation_info info = {0};
