@@ -1,0 +1,18 @@
+[Unit]
+Description=SleepCare GUI Application
+Documentation=https://github.com/WhiPaper/sleepcare
+# sleepcare-core가 @sleepcare/risk 소켓을 먼저 바인딩하는 것을 선호
+After=multi-user.target sleepcare-core.service
+Wants=sleepcare-core.service
+
+[Service]
+ExecStart=/usr/bin/sleepcare-gui
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sleepcare-gui
+Environment=LV_DRM_CARD=/dev/dri/card2
+
+[Install]
+WantedBy=multi-user.target

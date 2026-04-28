@@ -1,109 +1,119 @@
 #pragma once
+/**
+ * @file DrowsinessBridge.hpp
+ * @brief Receives RiskFrame from sleepcare-ws via UDS (@sleepcare/risk).
+ *
+ * Replaces the previous POSIX SHM implementation.
+ * Binds to the abstract-namespace socket @sleepcare/risk and exposes
+ * the latest received frame via simple accessors.
+ *
+ * Integration into the LVGL main loop:
+ *   1. Call open() once at startup.
+ *   2. Pass epoll_fd() to epoll_wait() instead of plain usleep().
+ *   3. Call recv_nonblock() when epoll signals EPOLLIN.
+ */
 
-#include <fcntl.h>
-#include <sys/mman.h>
+#include <sys/epoll.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 #include <cerrno>
-#include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <string>
-#include <utility>
 
-class DrowsinessBridge {
+#include "sleepcare_proto.h"
+
+class RiskBridge {
    public:
-    // Shared memory layout (32 bytes):
-    // [0..3]  : magic "EARS"
-    // [4..7]  : version (u32, little-endian)
-    // [8..11] : sequence (u32, writer flips odd/even)
-    // [12..15]: status  (u32, 0=awake, 1=drowsy, 2=no-face)
-    explicit DrowsinessBridge(std::string shm_name) : shm_name_(std::move(shm_name)) {}
+    RiskBridge()  = default;
+    ~RiskBridge() { close(); }
 
-    ~DrowsinessBridge() {
-        if (map_) {
-            munmap(map_, kMapSize);
-            map_ = nullptr;
-        }
-        if (fd_ >= 0) {
-            close(fd_);
-            fd_ = -1;
-        }
-    }
+    RiskBridge(const RiskBridge&)            = delete;
+    RiskBridge& operator=(const RiskBridge&) = delete;
 
-    bool poll() {
-        if (!ensure_mapping_()) {
-            is_drowsy_ = false;
+    /** Bind socket and create epoll fd. Returns false on failure (non-fatal). */
+    bool open() {
+        sock_fd_ = ::socket(AF_UNIX, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+        if (sock_fd_ < 0) {
+            std::fprintf(stderr, "[risk] socket: %s\n", std::strerror(errno));
             return false;
         }
 
-        const auto* bytes = static_cast<const uint8_t*>(map_);
-        if (!(bytes[0] == 'E' && bytes[1] == 'A' && bytes[2] == 'R' && bytes[3] == 'S')) {
-            is_drowsy_ = false;
+        struct sockaddr_un addr{};
+        addr.sun_family = AF_UNIX;
+        std::memcpy(addr.sun_path, SC_SOCK_RISK, SC_SOCK_RISK_LEN);
+        socklen_t addrlen =
+            static_cast<socklen_t>(offsetof(struct sockaddr_un, sun_path) + SC_SOCK_RISK_LEN);
+
+        if (::bind(sock_fd_, reinterpret_cast<struct sockaddr*>(&addr), addrlen) < 0) {
+            std::fprintf(stderr, "[risk] bind: %s\n", std::strerror(errno));
+            ::close(sock_fd_);
+            sock_fd_ = -1;
             return false;
         }
 
-        uint32_t version = read_u32_le_(bytes + 4);
-        if (version != 1U) {
-            is_drowsy_ = false;
+        epoll_fd_ = ::epoll_create1(EPOLL_CLOEXEC);
+        if (epoll_fd_ < 0) {
+            std::fprintf(stderr, "[risk] epoll_create1: %s\n", std::strerror(errno));
+            ::close(sock_fd_);
+            sock_fd_ = -1;
             return false;
         }
 
-        // Retry a few times to avoid torn reads while writer updates.
-        for (int i = 0; i < 4; ++i) {
-            uint32_t seq_start = read_u32_le_(bytes + 8);
-            uint32_t status    = read_u32_le_(bytes + 12);
-            uint32_t seq_end   = read_u32_le_(bytes + 8);
-
-            if ((seq_start & 1U) == 0U && seq_start == seq_end) {
-                is_drowsy_ = (status == 1U);
-                return is_drowsy_;
-            }
-        }
-
-        // If updates are in progress continuously, keep last stable value.
-        return is_drowsy_;
-    }
-
-    bool is_drowsy() const { return is_drowsy_; }
-
-   private:
-    static uint32_t read_u32_le_(const uint8_t* p) {
-        return static_cast<uint32_t>(p[0]) | (static_cast<uint32_t>(p[1]) << 8) |
-               (static_cast<uint32_t>(p[2]) << 16) | (static_cast<uint32_t>(p[3]) << 24);
-    }
-
-    bool ensure_mapping_() {
-        if (map_) {
-            return true;
-        }
-
-        fd_ = shm_open(shm_name_.c_str(), O_RDONLY, 0);
-        if (fd_ < 0) {
-            if (errno != ENOENT) {
-                std::fprintf(stderr, "[drowsy] WARNING: shm_open(%s) failed: %s\n", shm_name_.c_str(),
-                             std::strerror(errno));
-            }
-            return false;
-        }
-
-        map_ = mmap(nullptr, kMapSize, PROT_READ, MAP_SHARED, fd_, 0);
-        if (map_ == MAP_FAILED) {
-            std::fprintf(stderr, "[drowsy] WARNING: mmap(%s) failed: %s\n", shm_name_.c_str(),
-                         std::strerror(errno));
-            map_ = nullptr;
-            close(fd_);
-            fd_ = -1;
+        struct epoll_event ev{};
+        ev.events  = EPOLLIN;
+        ev.data.fd = sock_fd_;
+        if (::epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, sock_fd_, &ev) < 0) {
+            std::fprintf(stderr, "[risk] epoll_ctl: %s\n", std::strerror(errno));
+            ::close(epoll_fd_);
+            ::close(sock_fd_);
+            epoll_fd_ = sock_fd_ = -1;
             return false;
         }
 
         return true;
     }
 
-    static constexpr size_t kMapSize = 32;
+    void close() {
+        if (epoll_fd_ >= 0) { ::close(epoll_fd_); epoll_fd_ = -1; }
+        if (sock_fd_  >= 0) { ::close(sock_fd_);  sock_fd_  = -1; }
+        std::memset(&last_, 0, sizeof(last_));
+    }
 
-    std::string shm_name_;
-    int         fd_       = -1;
-    void*       map_      = nullptr;
-    bool        is_drowsy_ = false;
+    /**
+     * Non-blocking receive. Returns true if a valid new frame was received.
+     * Call in the EPOLLIN branch of the main loop.
+     */
+    bool recv_nonblock() {
+        if (sock_fd_ < 0) return false;
+
+        RiskFrame frame{};
+        ssize_t n = ::recv(sock_fd_, &frame, sizeof(frame), MSG_DONTWAIT);
+        if (n != static_cast<ssize_t>(sizeof(frame))) return false;
+
+        if (frame.magic[0] != 'S' || frame.magic[1] != 'R' ||
+            frame.magic[2] != 'S' || frame.magic[3] != 'K') return false;
+        if (frame.version != 1u) return false;
+
+        last_ = frame;
+        return true;
+    }
+
+    /** epoll fd for main-loop integration. Returns -1 if not open. */
+    int epoll_fd() const { return epoll_fd_; }
+
+    /* Accessors */
+    uint8_t  state()       const { return last_.state; }
+    uint8_t  alert_level() const { return last_.alert_level; }
+    uint8_t  qr_ready()    const { return last_.qr_ready; }
+    float    eye_score()   const { return last_.eye_score; }
+    float    fused_score() const { return last_.fused_score; }
+    uint16_t hr_bpm()      const { return last_.hr_bpm; }
+    bool     is_drowsy()   const { return last_.state == SC_STATE_ALERTING; }
+
+   private:
+    int       sock_fd_  = -1;
+    int       epoll_fd_ = -1;
+    RiskFrame last_     = {};
 };

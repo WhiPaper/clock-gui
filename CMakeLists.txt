@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.12)
-project(clockOS_gui LANGUAGES C CXX ASM)
+project(sleepcare_gui LANGUAGES C CXX ASM)
 
 cmake_policy(SET CMP0077 NEW)
 cmake_policy(SET CMP0079 NEW)
@@ -16,7 +16,6 @@ find_package(PkgConfig REQUIRED)
 find_package(Threads   REQUIRED)
 
 pkg_check_modules(DRM  REQUIRED IMPORTED_TARGET libdrm)
-pkg_check_modules(GPIOD REQUIRED IMPORTED_TARGET libgpiod)
 
 # --- LVGL ---
 add_subdirectory(lvgl)
@@ -31,18 +30,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "src/*.cpp")
 
-add_executable(${PROJECT_NAME} ${SOURCES})
+add_executable(sleepcare-gui ${SOURCES})
 
-target_include_directories(${PROJECT_NAME} PRIVATE
+target_include_directories(sleepcare-gui PRIVATE
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/src
+    ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(${PROJECT_NAME}
+target_link_libraries(sleepcare-gui
     PRIVATE
     lvgl
-    PkgConfig::GPIOD
     Threads::Threads
 )
 
-install(TARGETS ${PROJECT_NAME} DESTINATION bin)
+install(TARGETS sleepcare-gui DESTINATION bin)

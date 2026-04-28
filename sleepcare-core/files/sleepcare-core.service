@@ -1,0 +1,26 @@
+[Unit]
+Description=SleepCare Core Daemon (sleepcare-core)
+Documentation=https://github.com/WhiPaper/sleepcare
+After=network-online.target earsys.service avahi-daemon.service
+Wants=network-online.target avahi-daemon.service
+Requires=earsys.service
+
+[Service]
+Type=simple
+ExecStartPre=/bin/mkdir -p /run/sleepcare
+ExecStartPre=/bin/chmod 755 /run/sleepcare
+ExecStart=/usr/bin/sleepcare-core
+Restart=on-failure
+RestartSec=3s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sleepcare-core
+
+# Security hardening
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
