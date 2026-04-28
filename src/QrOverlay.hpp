@@ -76,21 +76,30 @@ class QrOverlay {
         lv_canvas_fill_bg(canvas_, lv_color_white(), LV_OPA_COVER);
 
         /* --- draw modules ----------------------------------------------- */
+        lv_layer_t layer;
+        lv_canvas_init_layer(canvas_, &layer);
+
         lv_draw_rect_dsc_t dsc;
         lv_draw_rect_dsc_init(&dsc);
-        dsc.bg_color   = lv_color_black();
-        dsc.bg_opa     = LV_OPA_COVER;
+        dsc.bg_color     = lv_color_black();
+        dsc.bg_opa       = LV_OPA_COVER;
         dsc.border_width = 0;
-        dsc.radius     = 0;
+        dsc.radius       = 0;
 
         for (int row = 0; row < h; ++row) {
             for (int col = 0; col < w; ++col) {
                 if (modules_[static_cast<size_t>(row) * w + col] == 0) continue;
-                lv_canvas_draw_rect(canvas_,
-                                    col * kScale, row * kScale,
-                                    kScale,       kScale, &dsc);
+
+                lv_area_t area;
+                area.x1 = col * kScale;
+                area.y1 = row * kScale;
+                area.x2 = area.x1 + kScale - 1;
+                area.y2 = area.y1 + kScale - 1;
+                lv_draw_rect(&layer, &dsc, &area);
             }
         }
+
+        lv_canvas_finish_layer(canvas_, &layer);
 
         lv_obj_clear_flag(canvas_, LV_OBJ_FLAG_HIDDEN);
     }

@@ -5,11 +5,11 @@
  * Transport: AF_UNIX / SOCK_DGRAM (abstract namespace)
  *
  *   @sleepcare/eye   — EARSYS  → sleepcare-ws  (EyeFrame,  20 bytes)
- *   @sleepcare/risk  — sleepcare-ws → clock-gui  (RiskFrame, 28 bytes)
+ *   @sleepcare/risk  — sleepcare-ws → clock-gui  (RiskFrame, 32 bytes)
  *
  * Python (EARSYS) equivalent:
  *   EyeFrame  = struct.Struct("<4sBBHfIQ")   # 20 bytes
- *   RiskFrame = struct.Struct("<4sBBBBffHHIQ") # 28 bytes
+ *   RiskFrame = struct.Struct("<4sBBBBffHHIQ") # 32 bytes
  */
 #pragma once
 
@@ -58,7 +58,7 @@ typedef struct __attribute__((packed)) {
     uint64_t ts_ms;      /* Unix epoch ms */
 } EyeFrame;
 
-/* ── RiskFrame — sleepcare-ws → clock-gui (28 bytes) ── */
+/* ── RiskFrame — sleepcare-ws → clock-gui (32 bytes) ── */
 typedef struct __attribute__((packed)) {
     uint8_t  magic[4];    /* "SRSK" */
     uint8_t  version;     /* 1 */
@@ -80,5 +80,5 @@ typedef struct __attribute__((packed)) {
 /* Compile-time size checks (C11 / C++11) */
 #ifdef __cplusplus
 static_assert(sizeof(EyeFrame)  == 24, "EyeFrame must be 24 bytes");
-static_assert(sizeof(RiskFrame) == 28, "RiskFrame must be 28 bytes");
+static_assert(sizeof(RiskFrame) == 32, "RiskFrame must be 32 bytes");
 #endif
