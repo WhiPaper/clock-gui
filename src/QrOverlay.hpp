@@ -22,7 +22,7 @@
 class QrOverlay {
    public:
     static constexpr const char* kQrBinPath = "/run/sleepcare/qr.bin";
-    static constexpr int         kMinPaddingPx = 8;
+    static constexpr int         kMinPaddingPx = 0;
 
     explicit QrOverlay() = default;
     ~QrOverlay()         = default;
@@ -61,8 +61,8 @@ class QrOverlay {
 
         /* --- compute scale to fit current display ------------------------- */
         lv_obj_t* screen = lv_screen_active();
-        int       disp_w = lv_obj_get_content_width(screen);
-        int       disp_h = lv_obj_get_content_height(screen);
+        int       disp_w = lv_obj_get_width(screen);
+        int       disp_h = lv_obj_get_height(screen);
         if (disp_w <= 0 || disp_h <= 0) {
             std::fprintf(stderr, "[qr] invalid display size: %dx%d\n", disp_w,
                          disp_h);
