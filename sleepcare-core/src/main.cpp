@@ -52,7 +52,8 @@ int main(void) {
     /* --- 1. TLS certificate ----------------------------------------- */
     mkdir("/etc/sleepcare", 0700);
     if (!sc_tls_ensure_cert(SC_CERT_PATH, SC_KEY_PATH)) {
-        fprintf(stderr, "[core] Config loading failed: %s\n", err_msg);
+        fprintf(stderr, "[core] TLS certificate setup failed (%s, %s)\n",
+                SC_CERT_PATH, SC_KEY_PATH);
         return 1;
     }
 
@@ -89,7 +90,7 @@ int main(void) {
     /* --- 4. mDNS advertisement -------------------------------------- */
     ScNsd* nsd = sc_nsd_start(SC_DEVICE_ID, SC_PORT);
     if (!nsd) {
-        fprintf(stderr, "[core] WARNING: EARSYS UDP socket open failed on %d\n", cfg.eye_port);
+        fprintf(stderr, "[core] WARNING: mDNS advertisement unavailable on port %d\n", SC_PORT);
     }
 
     /* --- 5. WebSocket server ---------------------------------------- */

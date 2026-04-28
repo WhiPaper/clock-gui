@@ -42,7 +42,7 @@ static void register_service(ScNsd* nsd) {
     txt = avahi_string_list_add(txt, dev_txt);
 
     int ret = avahi_entry_group_add_service_strlst(
-        nsd->group, AVAHI_IF_UNSPEC, AVAHI_PROTO_UNSPEC, 0,
+        nsd->group, AVAHI_IF_UNSPEC, AVAHI_PROTO_UNSPEC, (AvahiPublishFlags)0,
         instance, "_sleepcare._tcp", NULL, NULL, (uint16_t)nsd->port, txt);
 
     avahi_string_list_free(txt);
@@ -75,7 +75,7 @@ ScNsd* sc_nsd_start(const char* device_id, int port) {
 
     int err = 0;
     nsd->client = avahi_client_new(avahi_simple_poll_get(nsd->poll),
-                                   0, client_cb, nsd, &err);
+                                   (AvahiClientFlags)0, client_cb, nsd, &err);
     if (!nsd->client) {
         fprintf(stderr, "[nsd] avahi_client_new: %s\n", avahi_strerror(err));
         avahi_simple_poll_free(nsd->poll);

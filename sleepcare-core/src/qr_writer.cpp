@@ -7,6 +7,7 @@
 #include <string.h>
 #include <time.h>
 #include <sys/stat.h>
+#include <cstdint>
 
 /* qr.bin format:
  *   [4B] magic "SCQR"

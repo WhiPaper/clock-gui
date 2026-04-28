@@ -25,6 +25,7 @@ bool sc_tls_ensure_cert(const char* cert_path, const char* key_path) {
     printf("[tls] Generating self-signed RSA-2048 certificate...\n");
 
     EVP_PKEY* pkey = EVP_RSA_gen(2048);
+    FILE* cf = NULL;
     if (!pkey) { ERR_print_errors_fp(stderr); return false; }
 
     X509* x509 = X509_new();
@@ -47,7 +48,7 @@ bool sc_tls_ensure_cert(const char* cert_path, const char* key_path) {
     chmod(key_path, 0600);
 
     /* Write cert */
-    FILE* cf = fopen(cert_path, "wb");
+    cf = fopen(cert_path, "wb");
     if (!cf) { perror(cert_path); goto fail; }
     PEM_write_X509(cf, x509);
     fclose(cf);
