@@ -328,7 +328,6 @@ static const struct lws_http_mount kMount = {
     .cache_max_age    = 0,
     .auth_mask        = 0,
     .cache_intermediaries = 0,
-    .cache_no         = 0,
     .origin_protocol  = LWSMPRO_CALLBACK,
     .mountpoint_len   = sizeof(SC_WS_PATH) - 1,
     .basic_auth_login_file = NULL,
