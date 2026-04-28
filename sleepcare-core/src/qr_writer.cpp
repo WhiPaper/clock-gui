@@ -34,8 +34,8 @@ bool sc_qr_write(const char* spki_sha256, int port, const char* out_path) {
     cJSON_Delete(root);
     if (!json_str) return false;
 
-    /* Generate QR */
-    QRcode* qr = QRcode_encodeString(json_str, 0, QR_ECLEVEL_M, QR_MODE_8, 1);
+    /* Generate QR - version 3 (29x29) to reduce complexity */
+    QRcode* qr = QRcode_encodeString(json_str, 3, QR_ECLEVEL_L, QR_MODE_8, 1);
     free(json_str);
     if (!qr) { fprintf(stderr, "[qr] QRcode_encodeString failed\n"); return false; }
 

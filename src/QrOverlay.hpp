@@ -59,7 +59,7 @@ class QrOverlay {
         qr_w_ = w;
         qr_h_ = h;
 
-        /* --- compute scale to fit current display ------------------------- */
+        /* --- compute scale to fit 128x128 area ------------------------- */
         lv_obj_t* screen = lv_screen_active();
         int       disp_w = lv_obj_get_width(screen);
         int       disp_h = lv_obj_get_height(screen);
@@ -69,8 +69,8 @@ class QrOverlay {
             return;
         }
 
-        int avail_w = disp_w - (kMinPaddingPx * 2);
-        int avail_h = disp_h - (kMinPaddingPx * 2);
+        int avail_w = 128; /* constrain to 128x128 */
+        int avail_h = 128;
         int scale_w = avail_w / static_cast<int>(w);
         int scale_h = avail_h / static_cast<int>(h);
         int scale   = (scale_w < scale_h) ? scale_w : scale_h;
