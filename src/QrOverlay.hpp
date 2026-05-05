@@ -122,11 +122,14 @@ class QrOverlay {
     }
 
     void hide() {
-        if (canvas_) lv_obj_add_flag(canvas_, LV_OBJ_FLAG_HIDDEN);
+        if (canvas_) {
+            lv_obj_delete(canvas_);
+            canvas_ = nullptr;
+        }
     }
 
     bool is_visible() const {
-        return canvas_ && !lv_obj_has_flag(canvas_, LV_OBJ_FLAG_HIDDEN);
+        return canvas_ != nullptr;
     }
 
    private:
