@@ -22,7 +22,7 @@
 class QrOverlay {
    public:
     static constexpr const char* kQrBinPath = "/run/sleepcare/qr.bin";
-    static constexpr int         kMinPaddingPx = 0;
+    static constexpr int         kMinPaddingPx = 5;
 
     explicit QrOverlay() = default;
     ~QrOverlay()         = default;
