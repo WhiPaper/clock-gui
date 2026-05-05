@@ -124,6 +124,30 @@ static void handle_session_open(struct lws* wsi, ConnCtx* conn, ScEnvelope* env,
     snprintf(conn->session.sid, sizeof(conn->session.sid), "%s", env->sid);
     conn->session.session_open = true;
     session_reset(&conn->session);
+
+    cJSON* body = cJSON_Parse(body_raw ? body_raw : "{}");
+    if (body) {
+        cJSON* wa = cJSON_GetObjectItemCaseSensitive(body, "watch_available");
+        if (cJSON_IsBool(wa))
+            conn->session.watch_available = cJSON_IsTrue(wa);
+
+        cJSON* eo = cJSON_GetObjectItemCaseSensitive(body, "eye_only");
+        if (cJSON_IsBool(eo))
+            conn->session.eye_only_mode = cJSON_IsTrue(eo);
+
+        cJSON* sm = cJSON_GetObjectItemCaseSensitive(body, "study_mode");
+        if (cJSON_IsString(sm) && sm->valuestring)
+            snprintf(conn->session.study_mode, sizeof(conn->session.study_mode),
+                     "%s", sm->valuestring);
+
+        cJSON_Delete(body);
+    }
+
+    const char* mode_str = conn->session.watch_available ? "eye+hr" : "eye-only";
+    printf("[core] Session %s mode=%s (watch=%d eye_only=%d)\n",
+           env->sid, mode_str,
+           conn->session.watch_available, conn->session.eye_only_mode);
+
     conn->session.state = SS_BASELINE;  /* EARSYS runs camera independently */
     g_srv->active_wsi  = wsi;
     g_srv->active_conn = conn;
