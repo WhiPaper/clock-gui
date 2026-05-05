@@ -69,16 +69,17 @@ class QrOverlay {
             return;
         }
 
-        int avail_w = 128; /* constrain to 128x128 */
-        int avail_h = 128;
+        int pad = kMinPaddingPx;
+        int avail_w = 128 - pad * 2; /* constrain to 128x128 minus padding */
+        int avail_h = 128 - pad * 2;
         int scale_w = avail_w / static_cast<int>(w);
         int scale_h = avail_h / static_cast<int>(h);
         int scale   = (scale_w < scale_h) ? scale_w : scale_h;
         if (scale < 1) scale = 1;
 
         /* --- allocate canvas buffer (RGB565) ----------------------------- */
-        int sw = w * scale;
-        int sh = h * scale;
+        int sw = w * scale + pad * 2;
+        int sh = h * scale + pad * 2;
         canvas_buf_.assign(static_cast<size_t>(sw) * sh * 2, 0xFF); /* white */
 
         /* --- create / resize canvas ------------------------------------- */
@@ -107,8 +108,8 @@ class QrOverlay {
                 if (modules_[static_cast<size_t>(row) * w + col] == 0) continue;
 
                 lv_area_t area;
-                area.x1 = col * scale;
-                area.y1 = row * scale;
+                area.x1 = pad + col * scale;
+                area.y1 = pad + row * scale;
                 area.x2 = area.x1 + scale - 1;
                 area.y2 = area.y1 + scale - 1;
                 lv_draw_rect(&layer, &dsc, &area);
