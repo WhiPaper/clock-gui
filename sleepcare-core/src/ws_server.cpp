@@ -117,6 +117,11 @@ static void handle_hello(struct lws* wsi, ConnCtx* conn, const char* body_raw) {
              "{\"device_id\":\"%s\",\"mode\":\"%s\",\"proto\":\"v1\"}",
              SC_DEVICE_ID, mode);
     send_envelope(wsi, conn, T_HELLO_ACK, body, false);
+
+    /* Handshake complete: hide QR overlay and start UI sync timer */
+    g_srv->qr_ready = 0;
+    send_ui_state_frame((uint8_t)SC_STATE_IDLE, 0, g_srv->qr_ready, 0.0f, 0.0f, 0);
+    lws_set_timer_usecs(wsi, SC_RISK_INTERVAL_MS * 1000);
 }
 
 static void handle_session_open(struct lws* wsi, ConnCtx* conn, ScEnvelope* env,
@@ -204,7 +209,11 @@ static void handle_session_close(struct lws* wsi, ConnCtx* conn, const char* bod
 }
 
 static void do_risk_tick(struct lws* wsi, ConnCtx* conn) {
-    if (!conn->session.session_open) return;
+    if (!conn->session.session_open) {
+        /* Keep sending UI state so clock-gui reliably hides QR even if a UDP packet is dropped */
+        send_ui_state_frame((uint8_t)SC_STATE_IDLE, 0, g_srv->qr_ready, 0.0f, 0.0f, 0);
+        return;
+    }
 
     /* Read eye frame(s) */
     EyeFrame eye = {0};
