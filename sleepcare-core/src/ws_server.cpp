@@ -92,7 +92,11 @@ static void send_envelope(struct lws* wsi, ConnCtx* conn,
                            const char* t, const char* body, bool ack) {
     char* s = sc_proto_build(t, conn->session.sid,
                               &conn->session.seq_out, body, ack);
-    if (s) { send_msg(wsi, conn, s); free(s); }
+    if (s) {
+        printf("[sleepcare-pi] tx json: %s\n", s);
+        send_msg(wsi, conn, s);
+        free(s);
+    }
 }
 
 static void handle_hello(struct lws* wsi, ConnCtx* conn, const char* body_raw) {
@@ -129,7 +133,7 @@ static void handle_session_open(struct lws* wsi, ConnCtx* conn, ScEnvelope* env,
     send_ui_state_frame((uint8_t)SC_STATE_BASELINE, 0, g_srv->qr_ready,
                         0.0f, 0.0f, 0);
 
-    send_envelope(wsi, conn, T_SESSION_ACK, "{}", false);
+    send_envelope(wsi, conn, T_SESSION_ACK, "{\"accepted\":true}", false);
     /* Start 1-second risk timer */
     lws_set_timer_usecs(wsi, SC_RISK_INTERVAL_MS * 1000);
     printf("[core] Session %s opened\n", conn->session.sid);
@@ -270,7 +274,7 @@ static int sc_ws_callback(struct lws* wsi, enum lws_callback_reasons reason,
         session_init(&conn->session);
         memset(&conn->send_queue, 0, sizeof(conn->send_queue));
         conn->last_ping_ms = (int64_t)time(NULL) * 1000;
-        printf("[core] Client connected\n");
+        printf("[sleepcare-pi] websocket client connected path=/ws\n");
         break;
 
     case LWS_CALLBACK_RECEIVE: {
@@ -279,8 +283,12 @@ static int sc_ws_callback(struct lws* wsi, enum lws_callback_reasons reason,
         memcpy(buf, in, cplen);
         buf[cplen] = '\0';
 
+        printf("[sleepcare-pi] rx json: %s\n", buf);
+
         ScEnvelope env = {0};
         if (sc_proto_parse(buf, &env) != 0) break;
+        
+        printf("[sleepcare-pi] rx t=%s sid=%s seq=%lld\n", env.t, env.sid[0] ? env.sid : "null", (long long)env.seq);
 
         /* Re-parse body from original buffer */
         cJSON* root = cJSON_Parse(buf);
@@ -327,7 +335,12 @@ static int sc_ws_callback(struct lws* wsi, enum lws_callback_reasons reason,
         break;
 
     case LWS_CALLBACK_CLOSED:
-        printf("[core] Client disconnected\n");
+        if (!conn->session.hello_done && !conn->session.session_open) {
+            printf("[sleepcare-pi] websocket closed reason=spki_probe_done\n");
+        } else {
+            printf("[sleepcare-pi] websocket closed\n");
+        }
+        
         if (g_srv->active_wsi == wsi) {
             g_srv->active_wsi  = NULL;
             g_srv->active_conn = NULL;
