@@ -84,6 +84,25 @@ static void send_ui_state_frame(uint8_t state, uint8_t alert_level, uint8_t qr_r
     sc_risk_send(g_srv->risk_fd, &rf);
 }
 
+static void log_pre_session_eye(bool got_eye, const EyeFrame* eye, float eye_score, uint8_t ui_state) {
+    static int64_t s_last_log_ms = 0;
+    int64_t now_ms = (int64_t)time(NULL) * 1000;
+    if ((now_ms - s_last_log_ms) < 1000) return;
+
+    if (got_eye && eye) {
+        printf("[core][pre-session] eye_rx status=%u eye_score=%.3f seq=%u ts_ms=%llu ui_state=%u\n",
+               (unsigned)eye->status,
+               eye_score,
+               (unsigned)eye->seq,
+               (unsigned long long)eye->ts_ms,
+               (unsigned)ui_state);
+    } else {
+        printf("[core][pre-session] eye_rx pending(last unavailable), ui_state=%u\n",
+               (unsigned)ui_state);
+    }
+    s_last_log_ms = now_ms;
+}
+
 /* ── Helpers ────────────────────────────────────────────────────────── */
 static void send_msg(struct lws* wsi, ConnCtx* conn, const char* msg) {
     mq_push(&conn->send_queue, msg);
@@ -226,8 +245,23 @@ static bool do_risk_tick(struct lws* wsi, ConnCtx* conn) {
     }
 
     if (!conn->session.session_open) {
-        /* Keep sending UI state so clock-gui reliably hides QR even if a UDP packet is dropped */
-        send_ui_state_frame((uint8_t)SC_STATE_IDLE, 0, g_srv->qr_ready, 0.0f, 0.0f, 0);
+        /*
+         * Before mobile session_open, still reflect live eye score on LVGL.
+         * This keeps the local UI from being pinned at fused 0.00.
+         */
+        EyeFrame eye = {0};
+        bool got_eye = false;
+        while (sc_eye_recv(g_srv->eye_fd, &eye)) got_eye = true;
+        if (got_eye) {
+            conn->session.last_eye = eye;
+        }
+
+        bool no_face = conn->session.last_eye.status == SC_STATUS_NOFACE;
+        float eye_score = no_face ? 0.0f : conn->session.last_eye.eye_score;
+        uint8_t ui_state = no_face ? (uint8_t)SC_STATE_NO_FACE : (uint8_t)SC_STATE_IDLE;
+
+        log_pre_session_eye(got_eye, got_eye ? &eye : NULL, eye_score, ui_state);
+        send_ui_state_frame(ui_state, 0, g_srv->qr_ready, eye_score, eye_score, 0);
         return true;
     }
 
