@@ -68,6 +68,10 @@ class ClockApp {
 
         // --- Update alert label color + text based on state & level ---
         switch (state) {
+            case SC_STATE_NO_FACE:
+                lv_obj_set_style_text_color(alert_label_, lv_color_hex(0xB0B6C0), 0); // gray
+                lv_label_set_text(alert_label_, "얼굴 인식 안됨");
+                break;
             case SC_STATE_SUSPECT:
                 lv_obj_set_style_text_color(alert_label_, lv_color_hex(0xFF9500), 0); // orange
                 lv_label_set_text(alert_label_, "주의");

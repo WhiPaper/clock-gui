@@ -32,6 +32,7 @@ extern "C" {
 #define SC_STATE_SUSPECT   3u
 #define SC_STATE_ALERTING  4u
 #define SC_STATE_COOLDOWN  5u
+#define SC_STATE_NO_FACE   6u
 
 /* ── Status codes (EyeFrame.status) ── */
 #define SC_STATUS_AWAKE   0u

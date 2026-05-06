@@ -46,7 +46,9 @@ static bool mq_pop(MsgQueue* q, char* out, size_t out_len) {
 typedef struct {
     SessionCtx session;
     MsgQueue   send_queue;
-    int64_t    last_ping_ms;
+    int64_t    last_rx_ms;
+    int64_t    last_ping_sent_ms;
+    bool       ping_outstanding;
 } ConnCtx;
 
 /* ── Server context ─────────────────────────────────────────────────── */
@@ -208,11 +210,25 @@ static void handle_session_close(struct lws* wsi, ConnCtx* conn, const char* bod
     printf("[core] Session %s closed (%s)\n", conn->session.sid, reason);
 }
 
-static void do_risk_tick(struct lws* wsi, ConnCtx* conn) {
+static bool do_risk_tick(struct lws* wsi, ConnCtx* conn) {
+    int64_t now_ms = (int64_t)time(NULL) * 1000;
+
+    if (conn->last_rx_ms > 0 &&
+        (now_ms - conn->last_rx_ms) > (int64_t)SC_PING_TIMEOUT_SEC * 1000) {
+        printf("[sleepcare-pi] websocket ping timeout (%d sec), closing\n", SC_PING_TIMEOUT_SEC);
+        return false;
+    }
+
+    if ((now_ms - conn->last_ping_sent_ms) >= 15000) {
+        send_envelope(wsi, conn, T_PING, "{}", false);
+        conn->last_ping_sent_ms = now_ms;
+        conn->ping_outstanding = true;
+    }
+
     if (!conn->session.session_open) {
         /* Keep sending UI state so clock-gui reliably hides QR even if a UDP packet is dropped */
         send_ui_state_frame((uint8_t)SC_STATE_IDLE, 0, g_srv->qr_ready, 0.0f, 0.0f, 0);
-        return;
+        return true;
     }
 
     /* Read eye frame(s) */
@@ -224,10 +240,11 @@ static void do_risk_tick(struct lws* wsi, ConnCtx* conn) {
         conn->session.last_eye_ms = (int64_t)time(NULL) * 1000;
     }
 
-    float eye_score = conn->session.last_eye.eye_score;
+    bool no_face = conn->session.last_eye.status == SC_STATUS_NOFACE;
+    float eye_score = no_face ? 0.0f : conn->session.last_eye.eye_score;
 
     /* HR */
-    int64_t now_ms = (int64_t)time(NULL) * 1000;
+    now_ms = (int64_t)time(NULL) * 1000;
     int32_t bpm    = 0;
     float   hr_w   = 0.0f;
     hr_buffer_latest(&conn->session.hr_buf, now_ms, 10000, &bpm, &hr_w);
@@ -248,7 +265,8 @@ static void do_risk_tick(struct lws* wsi, ConnCtx* conn) {
     SessionState state = session_tick(&conn->session, fused, hr_w, 1.0 /* 1s */);
 
     /* Build risk.update */
-    const char* state_str = session_state_name(state);
+    const char* state_str = no_face ? "NO_FACE" : session_state_name(state);
+    uint8_t risk_state_code = no_face ? (uint8_t)SC_STATE_NO_FACE : (uint8_t)state;
     int flush_sec = (state == SS_SUSPECT) ? 5 :
                     (state == SS_ALERTING) ? 2 : 0;
 
@@ -269,7 +287,7 @@ static void do_risk_tick(struct lws* wsi, ConnCtx* conn) {
     RiskFrame rf = {0};
     rf.magic[0]='S'; rf.magic[1]='R'; rf.magic[2]='S'; rf.magic[3]='K';
     rf.version     = 1;
-    rf.state       = (uint8_t)state;
+    rf.state       = risk_state_code;
     rf.qr_ready    = g_srv->qr_ready;
     rf.eye_score   = eye_score;
     rf.fused_score = fused;
@@ -279,7 +297,7 @@ static void do_risk_tick(struct lws* wsi, ConnCtx* conn) {
     sc_risk_send(g_srv->risk_fd, &rf);
 
     /* ALERTING transition — fire alert */
-    if (state == SS_ALERTING && prev != SS_ALERTING) {
+    if (!no_face && state == SS_ALERTING && prev != SS_ALERTING) {
         conn->session.total_alerts++;
         int level = (fused >= 0.90f) ? 3 : (fused >= 0.75f) ? 2 : 1;
         rf.alert_level = (uint8_t)level;
@@ -295,6 +313,8 @@ static void do_risk_tick(struct lws* wsi, ConnCtx* conn) {
         conn->session.state = SS_COOLDOWN;
         conn->session.cooldown_acc_sec = 0.0;
     }
+
+    return true;
 }
 
 /* ── LWS callback ───────────────────────────────────────────────────── */
@@ -306,7 +326,9 @@ static int sc_ws_callback(struct lws* wsi, enum lws_callback_reasons reason,
     case LWS_CALLBACK_ESTABLISHED:
         session_init(&conn->session);
         memset(&conn->send_queue, 0, sizeof(conn->send_queue));
-        conn->last_ping_ms = (int64_t)time(NULL) * 1000;
+        conn->last_rx_ms = (int64_t)time(NULL) * 1000;
+        conn->last_ping_sent_ms = conn->last_rx_ms;
+        conn->ping_outstanding = false;
         printf("[sleepcare-pi] websocket client connected path=/ws\n");
         break;
 
@@ -317,6 +339,8 @@ static int sc_ws_callback(struct lws* wsi, enum lws_callback_reasons reason,
         buf[cplen] = '\0';
 
         printf("[sleepcare-pi] rx json: %s\n", buf);
+        conn->last_rx_ms = (int64_t)time(NULL) * 1000;
+        conn->ping_outstanding = false;
 
         ScEnvelope env = {0};
         if (sc_proto_parse(buf, &env) != 0) break;
@@ -341,7 +365,11 @@ static int sc_ws_callback(struct lws* wsi, enum lws_callback_reasons reason,
         else if (strcmp(env.t, T_SESSION_CLOSE) == 0) handle_session_close(wsi, conn, body_raw);
         else if (strcmp(env.t, T_PING)          == 0) {
             send_envelope(wsi, conn, T_PONG, "{}", false);
-            conn->last_ping_ms = (int64_t)time(NULL) * 1000;
+            conn->last_rx_ms = (int64_t)time(NULL) * 1000;
+        }
+        else if (strcmp(env.t, T_PONG)          == 0) {
+            conn->last_rx_ms = (int64_t)time(NULL) * 1000;
+            conn->ping_outstanding = false;
         }
         break;
     }
@@ -363,7 +391,9 @@ static int sc_ws_callback(struct lws* wsi, enum lws_callback_reasons reason,
     }
 
     case LWS_CALLBACK_TIMER:
-        do_risk_tick(wsi, conn);
+        if (!do_risk_tick(wsi, conn)) {
+            return -1;
+        }
         lws_set_timer_usecs(wsi, SC_RISK_INTERVAL_MS * 1000);
         break;
 
