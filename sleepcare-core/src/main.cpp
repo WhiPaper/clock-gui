@@ -3,8 +3,8 @@
  * @brief sleepcare-ws entry point.
  *
  * Startup sequence:
- *   1. Ensure /etc/sleepcare/ TLS certificate
- *   2. Compute SPKI SHA-256 → write /run/sleepcare/qr.bin → set qr_ready RiskFrame
+ *   1. Compute SPKI SHA-256 from the provisioned certificate
+ *   2. Write /run/sleepcare/qr.bin → set qr_ready RiskFrame
  *   3. Bind @sleepcare/eye UDS socket
  *   4. Open @sleepcare/risk send socket
  *   5. Start Avahi mDNS advertisement
@@ -49,15 +49,7 @@ int main(void) {
     signal(SIGTERM, sig_handler);
     signal(SIGPIPE, SIG_IGN);
 
-    /* --- 1. TLS certificate ----------------------------------------- */
-    mkdir("/etc/sleepcare", 0700);
-    if (!sc_tls_ensure_cert(SC_CERT_PATH, SC_KEY_PATH)) {
-        fprintf(stderr, "[core] TLS certificate setup failed (%s, %s)\n",
-                SC_CERT_PATH, SC_KEY_PATH);
-        return 1;
-    }
-
-    /* --- 2. QR code -------------------------------------------------- */
+    /* --- 1. QR code -------------------------------------------------- */
     char* spki = sc_tls_spki_sha256(SC_CERT_PATH);
     if (!spki) {
         fprintf(stderr, "[core] SPKI computation failed\n");
@@ -71,7 +63,7 @@ int main(void) {
     }
     free(spki);
 
-    /* --- 3. UDS sockets --------------------------------------------- */
+    /* --- 2. UDS sockets --------------------------------------------- */
     int eye_fd  = sc_eye_open();
     if (eye_fd < 0) {
         fprintf(stderr, "[core] Cannot bind @sleepcare/eye\n");
@@ -87,13 +79,13 @@ int main(void) {
     /* Notify clock-gui that QR is ready */
     send_qr_ready_frame(risk_fd, 1);
 
-    /* --- 4. mDNS advertisement -------------------------------------- */
+    /* --- 3. mDNS advertisement -------------------------------------- */
     ScNsd* nsd = sc_nsd_start(SC_DEVICE_ID, SC_PORT);
     if (!nsd) {
         fprintf(stderr, "[core] WARNING: mDNS advertisement unavailable on port %d\n", SC_PORT);
     }
 
-    /* --- 5. WebSocket server ---------------------------------------- */
+    /* --- 4. WebSocket server ---------------------------------------- */
     ScWsServer* srv = sc_ws_create(SC_PORT, SC_CERT_PATH, SC_KEY_PATH,
                                    eye_fd, risk_fd);
     if (!srv) {
@@ -106,7 +98,7 @@ int main(void) {
 
     printf("[core] Starting service loop...\n");
 
-    /* --- 6. Main service loop --------------------------------------- */
+    /* --- 5. Main service loop --------------------------------------- */
     while (g_running) {
         sc_ws_service(srv, 50);   /* ≤50ms polling */
         sc_nsd_poll(nsd, 0);      /* non-blocking Avahi poll */

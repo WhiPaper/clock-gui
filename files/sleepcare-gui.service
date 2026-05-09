@@ -1,8 +1,7 @@
 [Unit]
 Description=SleepCare GUI Application
 Documentation=https://github.com/WhiPaper/sleepcare
-# sleepcare-core가 @sleepcare/risk 소켓을 먼저 바인딩하는 것을 선호
-After=multi-user.target sleepcare-core.service
+After=sleepcare-core.service
 Wants=sleepcare-core.service
 
 [Service]

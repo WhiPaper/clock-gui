@@ -1,8 +1,6 @@
 #include "tls.h"
 #include <openssl/pem.h>
 #include <openssl/x509.h>
-#include <openssl/evp.h>
-#include <openssl/rsa.h>
 #include <openssl/err.h>
 #include <openssl/sha.h>
 #include <openssl/bio.h>
@@ -10,59 +8,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-
-static bool file_exists(const char* path) {
-    struct stat st;
-    return stat(path, &st) == 0;
-}
-
-bool sc_tls_ensure_cert(const char* cert_path, const char* key_path) {
-    if (file_exists(cert_path) && file_exists(key_path)) {
-        printf("[tls] Using existing cert: %s\n", cert_path);
-        return true;
-    }
-    printf("[tls] Generating self-signed RSA-2048 certificate...\n");
-
-    EVP_PKEY* pkey = EVP_RSA_gen(2048);
-    FILE* cf = NULL;
-    if (!pkey) { ERR_print_errors_fp(stderr); return false; }
-
-    X509* x509 = X509_new();
-    ASN1_INTEGER_set(X509_get_serialNumber(x509), 1);
-    X509_gmtime_adj(X509_get_notBefore(x509), 0);
-    X509_gmtime_adj(X509_get_notAfter(x509),  (long)3650 * 24 * 3600);
-    X509_set_pubkey(x509, pkey);
-
-    X509_NAME* name = X509_get_subject_name(x509);
-    X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
-                               (unsigned char*)"sleepcare-pi", -1, -1, 0);
-    X509_set_issuer_name(x509, name);
-    X509_sign(x509, pkey, EVP_sha256());
-
-    /* Write key */
-    FILE* kf = fopen(key_path, "wb");
-    if (!kf) { perror(key_path); goto fail; }
-    PEM_write_PrivateKey(kf, pkey, NULL, NULL, 0, NULL, NULL);
-    fclose(kf);
-    chmod(key_path, 0600);
-
-    /* Write cert */
-    cf = fopen(cert_path, "wb");
-    if (!cf) { perror(cert_path); goto fail; }
-    PEM_write_X509(cf, x509);
-    fclose(cf);
-
-    X509_free(x509);
-    EVP_PKEY_free(pkey);
-    printf("[tls] Certificate written to %s\n", cert_path);
-    return true;
-
-fail:
-    X509_free(x509);
-    EVP_PKEY_free(pkey);
-    return false;
-}
 
 char* sc_tls_spki_sha256(const char* cert_pem_path) {
     FILE* f = fopen(cert_pem_path, "rb");

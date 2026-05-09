@@ -11,15 +11,8 @@ extern "C" {
 #endif
 
 /**
- * Ensure /etc/sleepcare/pi_cert.pem and pi_key.pem exist.
- * Generates RSA-2048 self-signed certificate if not present.
- * Returns true on success.
- */
-bool sc_tls_ensure_cert(const char* cert_path, const char* key_path);
-
-/**
- * Compute DER SubjectPublicKeyInfo SHA-256 → Base64 string.
- * Caller must free() the returned string. Returns NULL on error.
+ * Compute DER SubjectPublicKeyInfo SHA-256 from the provisioned certificate.
+ * Caller must free() the returned Base64 string. Returns NULL on error.
  */
 char* sc_tls_spki_sha256(const char* cert_pem_path);
 
