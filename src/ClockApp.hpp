@@ -27,7 +27,7 @@ class ClockApp {
         lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
         lv_obj_set_style_flex_main_place(cont, LV_FLEX_ALIGN_CENTER, 0);
         lv_obj_set_style_flex_cross_place(cont, LV_FLEX_ALIGN_CENTER, 0);
-        lv_obj_set_style_pad_row(cont, 4, 0);
+        lv_obj_set_style_pad_row(cont, 2, 0);
 
         time_label_ = lv_label_create(cont);
         lv_obj_set_style_text_color(time_label_, lv_color_hex(0xF0F0F0), 0);
@@ -70,27 +70,27 @@ class ClockApp {
         switch (state) {
             case SC_STATE_NO_FACE:
                 lv_obj_set_style_text_color(alert_label_, lv_color_hex(0xB0B6C0), 0); // gray
-                lv_label_set_text(alert_label_, "얼굴 인식 안됨");
+                lv_label_set_text(alert_label_, "No face detected");
                 break;
             case SC_STATE_SUSPECT:
                 lv_obj_set_style_text_color(alert_label_, lv_color_hex(0xFF9500), 0); // orange
-                lv_label_set_text(alert_label_, "주의");
+                lv_label_set_text(alert_label_, "Caution");
                 break;
             case SC_STATE_ALERTING:
                 if (alert_level == 3) {
                     lv_obj_set_style_text_color(alert_label_, lv_color_hex(0xFF0000), 0); // pure red
-                    lv_label_set_text(alert_label_, "일어나세요!!!");
+                    lv_label_set_text(alert_label_, "Wake up!!!");
                 } else if (alert_level == 2) {
                     lv_obj_set_style_text_color(alert_label_, lv_color_hex(0xFF3B30), 0); // slightly lighter red
-                    lv_label_set_text(alert_label_, "졸음 감지!");
+                    lv_label_set_text(alert_label_, "Drowsiness detected!");
                 } else {
                     lv_obj_set_style_text_color(alert_label_, lv_color_hex(0xFF9500), 0); // orange-red
-                    lv_label_set_text(alert_label_, "주의");
+                    lv_label_set_text(alert_label_, "Caution");
                 }
                 break;
             case SC_STATE_COOLDOWN:
                 lv_obj_set_style_text_color(alert_label_, lv_color_hex(0xFFCC00), 0); // yellow
-                lv_label_set_text(alert_label_, "회복 중");
+                lv_label_set_text(alert_label_, "Recovering");
                 break;
             default:
                 lv_label_set_text(alert_label_, "");
