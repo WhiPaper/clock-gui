@@ -1,7 +1,7 @@
 /**
  * @file alert_local.h
- * @brief Local alert output: GPIO buzzer/LED via libgpiod.
- *        Gracefully degrades if GPIO unavailable.
+ * @brief Local alert output: PWM buzzer via sysfs.
+ *        Gracefully degrades if the PWM device is unavailable.
  */
 #pragma once
 #include <stdbool.h>

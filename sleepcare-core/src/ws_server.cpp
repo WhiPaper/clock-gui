@@ -114,7 +114,15 @@ static void send_envelope(struct lws* wsi, ConnCtx* conn,
     char* s = sc_proto_build(t, conn->session.sid,
                               &conn->session.seq_out, body, ack);
     if (s) {
+        /* compute used seq (sc_proto_build returns old seq and increments) */
+        uint32_t used_seq = conn && conn->session.seq_out ? (conn->session.seq_out - 1) : 0;
         printf("[sleepcare-pi] tx json: %s\n", s);
+        printf("[sleepcare-pi] tx meta: t=%s sid=%s seq=%u ack_required=%d body=%s\n",
+               t,
+               (conn && conn->session.sid[0]) ? conn->session.sid : "null",
+               used_seq,
+               ack ? 1 : 0,
+               body ? body : "{}");
         send_msg(wsi, conn, s);
         free(s);
     }
@@ -299,8 +307,13 @@ static bool do_risk_tick(struct lws* wsi, ConnCtx* conn) {
     SessionState state = session_tick(&conn->session, fused, hr_w, 1.0 /* 1s */);
 
     /* Build risk.update */
-    const char* state_str = no_face ? "NO_FACE" : session_state_name(state);
-    uint8_t risk_state_code = no_face ? (uint8_t)SC_STATE_NO_FACE : (uint8_t)state;
+    bool alerting_transition = (state == SS_ALERTING && prev != SS_ALERTING);
+    const char* state_str = (state == SS_ALERTING)
+                                ? session_state_name(state)
+                                : (no_face ? "NO_FACE" : session_state_name(state));
+    uint8_t risk_state_code = (state == SS_ALERTING)
+                                  ? (uint8_t)state
+                                  : (no_face ? (uint8_t)SC_STATE_NO_FACE : (uint8_t)state);
     int flush_sec = (state == SS_SUSPECT) ? 5 :
                     (state == SS_ALERTING) ? 2 : 0;
 
@@ -331,7 +344,7 @@ static bool do_risk_tick(struct lws* wsi, ConnCtx* conn) {
     sc_risk_send(g_srv->risk_fd, &rf);
 
     /* ALERTING transition — fire alert */
-    if (!no_face && state == SS_ALERTING && prev != SS_ALERTING) {
+    if (alerting_transition) {
         conn->session.total_alerts++;
         int level = (fused >= 0.90f) ? 3 : (fused >= 0.75f) ? 2 : 1;
         rf.alert_level = (uint8_t)level;
@@ -413,10 +426,28 @@ static int sc_ws_callback(struct lws* wsi, enum lws_callback_reasons reason,
         if (!mq_pop(&conn->send_queue, msg, sizeof(msg))) break;
 
         size_t msg_len = strlen(msg);
+        /* parse minimal metadata from queued JSON for logging */
+        cJSON* _root = cJSON_Parse(msg);
+        const char* _t = NULL;
+        long _seq = -1;
+        if (_root) {
+            cJSON* _tobj = cJSON_GetObjectItemCaseSensitive(_root, "t");
+            if (cJSON_IsString(_tobj) && _tobj->valuestring) _t = _tobj->valuestring;
+            cJSON* _sobj = cJSON_GetObjectItemCaseSensitive(_root, "seq");
+            if (cJSON_IsNumber(_sobj)) _seq = (long)_sobj->valuedouble;
+            cJSON_Delete(_root);
+        }
+
         unsigned char* out = (unsigned char*)malloc(LWS_PRE + msg_len);
         if (!out) break;
         memcpy(out + LWS_PRE, msg, msg_len);
-        lws_write(wsi, out + LWS_PRE, msg_len, LWS_WRITE_TEXT);
+        int w = lws_write(wsi, out + LWS_PRE, msg_len, LWS_WRITE_TEXT);
+        printf("[sleepcare-pi] lws_write: t=%s seq=%ld len=%zu ret=%d queued=%d\n",
+               _t ? _t : "?",
+               _seq,
+               msg_len,
+               w,
+               conn->send_queue.count);
         free(out);
 
         if (conn->send_queue.count > 0)
