@@ -15,9 +15,16 @@ struct ScAlert {
 
 static bool write_text_file(const char* path, const char* value) {
     int fd = open(path, O_WRONLY);
-    if (fd < 0) return false;
+    if (fd < 0) {
+        fprintf(stderr, "[alert] open %s: %s\n", path, strerror(errno));
+        return false;
+    }
     size_t len = strlen(value);
     ssize_t written = write(fd, value, len);
+    if (written != (ssize_t)len) {
+        fprintf(stderr, "[alert] write %s (%zu bytes): %s\n",
+                path, len, written < 0 ? strerror(errno) : "short write");
+    }
     close(fd);
     return written == (ssize_t)len;
 }
