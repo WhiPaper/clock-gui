@@ -36,7 +36,7 @@ static void register_service(ScNsd* nsd) {
     snprintf(instance, sizeof(instance), "SleepCare-Pi-%s", nsd->device_id);
 
     AvahiStringList* txt =
-        avahi_string_list_new("proto=v1", "tls=1", "ws=/ws", "cam=1", NULL);
+        avahi_string_list_new("proto=v1", "tls=1", "ws=/ws", NULL);
     char dev_txt[128];
     snprintf(dev_txt, sizeof(dev_txt), "device_id=%s", nsd->device_id);
     txt = avahi_string_list_add(txt, dev_txt);

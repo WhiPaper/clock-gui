@@ -27,8 +27,21 @@ bool sc_qr_write(const char* spki_sha256, int port, const char* out_path) {
     cJSON_AddStringToObject(root, "ws",           SC_WS_PATH);
     cJSON_AddNumberToObject(root, "tls",          1);
     cJSON_AddStringToObject(root, "spki_sha256",  spki_sha256 ? spki_sha256 : "");
+
+    /* pin_hint: short display-friendly fingerprint — first 10 + "..." + last 6 */
+    char pin_hint[32] = "";
+    if (spki_sha256) {
+        size_t len = strlen(spki_sha256);
+        if (len > 16) {
+            snprintf(pin_hint, sizeof(pin_hint), "%.*s...%.*s",
+                     10, spki_sha256, 6, spki_sha256 + len - 6);
+        } else {
+            snprintf(pin_hint, sizeof(pin_hint), "%s", spki_sha256);
+        }
+    }
+    cJSON_AddStringToObject(root, "pin_hint", pin_hint);
+
     cJSON_AddNumberToObject(root, "issued_at_ms", (double)now_ms);
-    cJSON_AddStringToObject(root, "key_id",       SC_KEY_ID);
 
     char* json_str = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);

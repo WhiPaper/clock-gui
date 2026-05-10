@@ -46,15 +46,8 @@ static bool mq_pop(MsgQueue* q, char* out, size_t out_len) {
 typedef struct {
     SessionCtx session;
     MsgQueue   send_queue;
-    int64_t    last_rx_ms;
-    int64_t    last_ping_sent_ms;
-    bool       ping_outstanding;
-    int64_t    established_ms;
-    int64_t    hello_done_ms;
     int64_t    session_open_ms;
     bool       summary_pending;
-    int64_t    summary_pending_ms;
-    bool       close_after_summary;
 } ConnCtx;
 
 /* ── Server context ─────────────────────────────────────────────────── */
@@ -74,10 +67,6 @@ static ScWsServer* g_srv = NULL;  /* single global for LWS callback */
 
 /* Canonical session-summary reasons */
 static const char* kReasonUserStop           = "user_stop";
-static const char* kReasonPingTimeout        = "ping_timeout";
-static const char* kReasonHelloTimeout       = "hello_timeout";
-static const char* kReasonSessionOpenTimeout = "session_open_timeout";
-static const char* kReasonSummaryWriteTimeout= "summary_write_timeout";
 
 static void send_ui_state_frame(uint8_t state, uint8_t alert_level, uint8_t qr_ready,
                                 float eye_score, float fused_score, uint16_t hr_bpm) {
@@ -152,7 +141,6 @@ static void handle_hello(struct lws* wsi, ConnCtx* conn, const char* body_raw) {
         cJSON_Delete(root);
     }
     conn->session.hello_done = true;
-    conn->hello_done_ms = (int64_t)time(NULL) * 1000;
 
     const char* mode = conn->session.watch_available ? "eye+hr" : "eye-only";
     char body[256];
@@ -173,8 +161,6 @@ static void handle_session_open(struct lws* wsi, ConnCtx* conn, ScEnvelope* env,
     conn->session.session_open = true;
     conn->session_open_ms = (int64_t)time(NULL) * 1000;
     conn->summary_pending = false;
-    conn->summary_pending_ms = 0;
-    conn->close_after_summary = false;
 
     cJSON* body = cJSON_Parse(body_raw ? body_raw : "{}");
     if (body) {
@@ -208,13 +194,33 @@ static void handle_session_open(struct lws* wsi, ConnCtx* conn, ScEnvelope* env,
     send_ui_state_frame((uint8_t)SC_STATE_BASELINE, 0, g_srv->qr_ready,
                         0.0f, 0.0f, 0);
 
-    send_envelope(wsi, conn, T_SESSION_ACK, "{\"accepted\":true}", false);
+    /* Check camera readiness: drain any pending eye frames */
+    int64_t now_ms = sc_now_ms();
+    EyeFrame tmp_eye;
+    bool got_eye_now = false;
+    while (sc_eye_recv(g_srv->eye_fd, &tmp_eye)) {
+        got_eye_now = true;
+        conn->session.last_eye = tmp_eye;
+        conn->session.last_eye_ms = now_ms;
+    }
+    bool camera_ready = got_eye_now ||
+        (conn->session.last_eye_ms > 0 &&
+         (now_ms - conn->session.last_eye_ms) < 5000);
+
+    char ack_body[128];
+    snprintf(ack_body, sizeof(ack_body),
+             "{\"accepted\":true,\"camera_ready\":%s}",
+             camera_ready ? "true" : "false");
+    send_envelope(wsi, conn, T_SESSION_ACK, ack_body, false);
     /* Start 1-second risk timer */
     lws_set_timer_usecs(wsi, SC_RISK_INTERVAL_MS * 1000);
     printf("[core] Session %s opened\n", conn->session.sid);
 }
 
 static void handle_session_close(struct lws* wsi, ConnCtx* conn, const char* body_raw) {
+    /* Capture the current state for final_state before overwriting */
+    SessionState prev_state = conn->session.state;
+    const char* state_name = session_state_name(prev_state);
     conn->session.state = SS_CLOSING;
 
     /* Parse reason */
@@ -229,7 +235,6 @@ static void handle_session_close(struct lws* wsi, ConnCtx* conn, const char* bod
              "%s", reason);
 
     char body[512];
-    const char* state_name = session_state_name(conn->session.state);
     snprintf(body, sizeof(body),
              "{\"final_state\":\"%s\","
              "\"total_alerts\":%d,"
@@ -244,7 +249,6 @@ static void handle_session_close(struct lws* wsi, ConnCtx* conn, const char* bod
     if (root) cJSON_Delete(root);
     send_envelope(wsi, conn, T_SESSION_SUMM, body, false);
     conn->summary_pending = true;
-    conn->summary_pending_ms = (int64_t)time(NULL) * 1000;
 
     /* Mark session as closed so timer ticks return to pre-session path. */
     conn->session.session_open = false;
@@ -261,58 +265,6 @@ static void handle_session_close(struct lws* wsi, ConnCtx* conn, const char* bod
 }
 
 static bool do_risk_tick(struct lws* wsi, ConnCtx* conn) {
-    int64_t now_ms = (int64_t)time(NULL) * 1000;
-
-    if (conn->close_after_summary) {
-        if (!conn->summary_pending) {
-            printf("[sleepcare-pi] session.summary flushed, closing websocket\n");
-            return false;
-        }
-        if (conn->summary_pending_ms > 0 &&
-            (now_ms - conn->summary_pending_ms) > (int64_t)SC_SUMMARY_TIMEOUT_MS) {
-            printf("[sleepcare-pi] %s (%d ms), closing\n",
-                   kReasonSummaryWriteTimeout, SC_SUMMARY_TIMEOUT_MS);
-            return false;
-        }
-        return true;
-    }
-
-    if (!conn->session.hello_done &&
-        (now_ms - conn->established_ms) > (int64_t)SC_HELLO_TIMEOUT_MS) {
-        printf("[sleepcare-pi] %s (%d ms), closing\n",
-               kReasonHelloTimeout, SC_HELLO_TIMEOUT_MS);
-        return false;
-    }
-
-    if (conn->session.hello_done && !conn->session.session_open &&
-        conn->hello_done_ms > 0 &&
-        (now_ms - conn->hello_done_ms) > (int64_t)SC_SESSION_TIMEOUT_MS) {
-        printf("[sleepcare-pi] %s (%d ms), closing\n",
-               kReasonSessionOpenTimeout, SC_SESSION_TIMEOUT_MS);
-        return false;
-    }
-
-    if (conn->last_rx_ms > 0 &&
-        (now_ms - conn->last_rx_ms) > (int64_t)SC_PING_TIMEOUT_SEC * 1000) {
-        if (conn->session.session_open) {
-            printf("[sleepcare-pi] websocket ping timeout (%d sec), closing after summary\n", SC_PING_TIMEOUT_SEC);
-            char close_body[64];
-            snprintf(close_body, sizeof(close_body),
-                     "{\"reason\":\"%s\"}", kReasonPingTimeout);
-            handle_session_close(wsi, conn, close_body);
-            conn->close_after_summary = true;
-            return true;
-        }
-        printf("[sleepcare-pi] websocket ping timeout (%d sec), closing\n", SC_PING_TIMEOUT_SEC);
-        return false;
-    }
-
-    if ((now_ms - conn->last_ping_sent_ms) >= 15000) {
-        send_envelope(wsi, conn, T_PING, "{}", false);
-        conn->last_ping_sent_ms = now_ms;
-        conn->ping_outstanding = true;
-    }
-
     if (!conn->session.session_open) {
         /*
          * Before mobile session_open, still reflect live eye score on LVGL.
@@ -347,7 +299,7 @@ static bool do_risk_tick(struct lws* wsi, ConnCtx* conn) {
     float eye_score = no_face ? 0.0f : conn->session.last_eye.eye_score;
 
     /* HR */
-    now_ms = (int64_t)time(NULL) * 1000;
+    int64_t now_ms = sc_now_ms();
     int32_t bpm    = 0;
     float   hr_w   = 0.0f;
     hr_buffer_latest(&conn->session.hr_buf, now_ms, 10000, &bpm, &hr_w);
@@ -384,18 +336,27 @@ static bool do_risk_tick(struct lws* wsi, ConnCtx* conn) {
     int flush_sec = (state == SS_SUSPECT) ? 5 :
                     (state == SS_ALERTING) ? 2 : 0;
 
-    char body[512];
-    snprintf(body, sizeof(body),
-             "{\"mode\":\"%s\","
-             "\"eye_score\":%.3f,"
-             "\"hr_score\":%.3f,"
-             "\"fused_score\":%.3f,"
-             "\"state\":\"%s\","
-             "\"recommended_flush_sec\":%d}",
-             conn->session.watch_available ? "eye+hr" : "eye-only",
-             eye_score, hr_score, fused, state_str, flush_sec);
+    cJSON* risk_body = cJSON_CreateObject();
+    cJSON_AddStringToObject(risk_body, "mode", conn->session.watch_available ? "eye+hr" : "eye-only");
+    cJSON_AddNumberToObject(risk_body, "eye_score", (double)eye_score);
+    bool has_hr = (bpm > 0 && hr_w > 0.0f);
+    if (has_hr)
+        cJSON_AddNumberToObject(risk_body, "hr_score", (double)hr_score);
+    else
+        cJSON_AddNullToObject(risk_body, "hr_score");
+    cJSON_AddNumberToObject(risk_body, "fused_score", (double)fused);
+    cJSON_AddStringToObject(risk_body, "state", state_str);
+    if (flush_sec > 0)
+        cJSON_AddNumberToObject(risk_body, "recommended_flush_sec", flush_sec);
+    else
+        cJSON_AddNullToObject(risk_body, "recommended_flush_sec");
 
-    send_envelope(wsi, conn, T_RISK_UPDATE, body, false);
+    char* risk_body_str = cJSON_PrintUnformatted(risk_body);
+    cJSON_Delete(risk_body);
+    if (risk_body_str) {
+        send_envelope(wsi, conn, T_RISK_UPDATE, risk_body_str, false);
+        free(risk_body_str);
+    }
 
     /* Fire risk frame to clock-gui */
     RiskFrame rf = {0};
@@ -440,15 +401,8 @@ static int sc_ws_callback(struct lws* wsi, enum lws_callback_reasons reason,
     case LWS_CALLBACK_ESTABLISHED:
         session_init(&conn->session);
         memset(&conn->send_queue, 0, sizeof(conn->send_queue));
-        conn->last_rx_ms = (int64_t)time(NULL) * 1000;
-        conn->last_ping_sent_ms = conn->last_rx_ms;
-        conn->ping_outstanding = false;
-        conn->established_ms = conn->last_rx_ms;
-        conn->hello_done_ms = 0;
         conn->session_open_ms = 0;
         conn->summary_pending = false;
-        conn->summary_pending_ms = 0;
-        conn->close_after_summary = false;
         printf("[sleepcare-pi] websocket client connected path=/ws\n");
         break;
 
@@ -459,8 +413,6 @@ static int sc_ws_callback(struct lws* wsi, enum lws_callback_reasons reason,
         buf[cplen] = '\0';
 
         printf("[sleepcare-pi] rx json: %s\n", buf);
-        conn->last_rx_ms = (int64_t)time(NULL) * 1000;
-        conn->ping_outstanding = false;
 
         ScEnvelope env = {0};
         if (sc_proto_parse(buf, &env) != 0) break;
@@ -483,14 +435,6 @@ static int sc_ws_callback(struct lws* wsi, enum lws_callback_reasons reason,
         else if (strcmp(env.t, T_SESSION_OPEN)  == 0) handle_session_open(wsi, conn, &env, body_raw);
         else if (strcmp(env.t, T_HR_INGEST)     == 0) hr_buffer_ingest(&conn->session.hr_buf, body_raw);
         else if (strcmp(env.t, T_SESSION_CLOSE) == 0) handle_session_close(wsi, conn, body_raw);
-        else if (strcmp(env.t, T_PING)          == 0) {
-            send_envelope(wsi, conn, T_PONG, "{}", false);
-            conn->last_rx_ms = (int64_t)time(NULL) * 1000;
-        }
-        else if (strcmp(env.t, T_PONG)          == 0) {
-            conn->last_rx_ms = (int64_t)time(NULL) * 1000;
-            conn->ping_outstanding = false;
-        }
         break;
     }
 
@@ -523,7 +467,6 @@ static int sc_ws_callback(struct lws* wsi, enum lws_callback_reasons reason,
                conn->send_queue.count);
           if (w >= 0 && _t && strcmp(_t, T_SESSION_SUMM) == 0) {
               conn->summary_pending = false;
-              conn->summary_pending_ms = 0;
           }
         free(out);
 

@@ -24,8 +24,6 @@ extern "C" {
 #define T_HR_INGEST      "hr.ingest"
 #define T_RISK_UPDATE    "risk.update"
 #define T_ALERT_FIRE     "alert.fire"
-#define T_PING           "ping"
-#define T_PONG           "pong"
 
 /** Parsed incoming envelope (minimal fields needed by the server). */
 typedef struct {

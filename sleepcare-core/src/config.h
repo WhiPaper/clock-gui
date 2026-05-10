@@ -8,7 +8,6 @@
 /* ── Identity ── */
 #define SC_DEVICE_ID    "deskpi-a1"
 #define SC_DISPLAY_NAME "SleepCare Pi Desk"
-#define SC_KEY_ID       "deskpi-a1-2026-04"
 
 /* ── Network ── */
 #define SC_PORT     8443
@@ -25,11 +24,7 @@
 #define SC_QR_BIN_PATH  "/run/sleepcare/qr.bin"
 #define SC_QR_DIR       "/run/sleepcare"
 
-/* ── Session timing (ms / sec) ── */
-#define SC_HELLO_TIMEOUT_MS   6000
-#define SC_SESSION_TIMEOUT_MS 6000
-#define SC_SUMMARY_TIMEOUT_MS 8000
-#define SC_PING_TIMEOUT_SEC   60
+/* ── Session timing ── */
 #define SC_RISK_INTERVAL_MS   1000   /* risk.update send period */
 
 /* ── Risk thresholds ── */
